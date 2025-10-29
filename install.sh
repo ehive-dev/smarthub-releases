@@ -2,20 +2,20 @@
 set -euo pipefail
 umask 022
 
-# SmartHub Installer/Updater (DietPi / arm64)
+# WattRadar Installer/Updater (DietPi / arm64)
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/ehive-dev/smarthub-releases/main/install.sh | sudo bash -s -- [--pre|--stable] [--tag vX.Y.Z] [--repo owner/repo]
+#   curl -fsSL https://raw.githubusercontent.com/ehive-dev/wattRadar-releases/main/install.sh | sudo bash -s -- [--pre|--stable] [--tag vX.Y.Z] [--repo owner/repo]
 #   sudo bash install.sh --pre | --stable | --tag vX.Y.Z | --repo owner/repo
 
 # Feste Bezeichnungen (Case-sensitiv)
-APP_NAME="smarthub"            # exakt: smarthub
-UNIT="${APP_NAME}.service"     # smarthub.service
+APP_NAME="smarthub"           # exakt: wattRadar
+UNIT="${APP_NAME}.service"     # wattRadar.service
 UNIT_BASE="${APP_NAME}"        # Verzeichnisnamen für State/Logs
 
 # Optional:
-#   REPO=ehive-dev/smarthub-releases
-#   DPKG_PKG=smarthub
-#   PORT=3005
+#   REPO=ehive-dev/wattRadar-releases
+#   DPKG_PKG=wattRadar
+#   PORT=3011
 #   HEALTH_PATH=/healthz
 
 REPO="${REPO:-ehive-dev/smarthub-releases}"
@@ -79,7 +79,7 @@ pick_deb_from_release(){
 installed_version(){ dpkg-query -W -f='${Version}\n' "$DPKG_PKG" 2>/dev/null || true; }
 
 get_port(){
-  local p="${PORT:-3005}"
+  local p="${PORT:-3011}"
   if [[ -r "/etc/default/${APP_NAME}" ]]; then . "/etc/default/${APP_NAME}" || true; p="${PORT:-$p}"; fi
   echo "$p"
 }
@@ -107,6 +107,10 @@ detect_exec(){
     echo "/usr/local/bin/${APP_NAME}"
   elif command -v "${APP_NAME}" >/dev/null 2>&1; then
     command -v "${APP_NAME}"
+  elif command -v wattradar >/dev/null 2>&1; then
+    command -v wattradar
+  elif command -v wattRadar >/dev/null 2>&1; then
+    command -v wattRadar
   elif [[ -x "/opt/${APP_NAME}/bin/${APP_NAME}" ]]; then
     echo "/opt/${APP_NAME}/bin/${APP_NAME}"
   elif [[ -f "/opt/${APP_NAME}/app.js" ]]; then
@@ -138,7 +142,7 @@ DEB_URL_RAW="$(printf '%s' "$RELEASE_JSON" | pick_deb_from_release || true)"
 DEB_URL="$(printf '%s' "$DEB_URL_RAW" | trim_one_line)"
 [[ -z "$DEB_URL" ]] && { err "Kein .deb Asset (${ARCH_REQ}) in Release ${TAG} gefunden."; exit 1; }
 
-TMPDIR="$(mktemp -d -t smarthub-install.XXXXX)"
+TMPDIR="$(mktemp -d -t wattradar-install.XXXXX)"
 trap 'rm -rf "$TMPDIR"' EXIT
 DEB_FILE="${TMPDIR}/${APP_NAME}_${VER_CLEAN}_${ARCH_REQ}.deb"
 
@@ -167,7 +171,8 @@ ok "Installiert: ${DPKG_PKG} ${VER_CLEAN}"
 if [[ ! -f /etc/default/${APP_NAME} ]]; then
   install -D -m 644 /dev/null /etc/default/${APP_NAME}
   {
-    echo "PORT=${PORT:-3005}"
+    echo "PORT=${PORT:-3011}"
+    echo "# INFLUX_URL=http://localhost:8086"
     echo "# UPDATE_LOG=/var/log/${UNIT_BASE}/update.log"
     echo "# UPDATE_LOCK=/var/lib/${UNIT_BASE}/update.lock"
     echo "HEALTH_PATH=${HEALTH_PATH:-/healthz}"
