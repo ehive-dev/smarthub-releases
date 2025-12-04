@@ -69,10 +69,9 @@ need_tools(){
 
 api(){
   local url="$1"
-  local hdr=(-H "Accept: application/vnd.github+json")
-  [[ -n "${GITHUB_TOKEN:-}" ]] && hdr+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-  curl -fsSL "${hdr[@]}" "$url"
+  curl -fsSL -H "Accept: application/vnd.github+json" "$url"
 }
+
 
 trim_one_line(){
   tr -d '\r' | tr -d '\n' | sed 's/[[:space:]]\+$//'
