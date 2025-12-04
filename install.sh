@@ -30,36 +30,20 @@ TAG="${TAG:-}"
 ARCH_REQ="arm64"
 DPKG_PKG="${DPKG_PKG:-$APP_NAME}"
 
-# ---------- CLI-Args ----------
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --pre) CHANNEL="pre"; shift ;;
-    --stable) CHANNEL="stable"; shift ;;
-    --tag) TAG="${2:-}"; shift 2 ;;
-    --repo) REPO="${2:-}"; shift 2 ;;
-    -h|--help)
-      echo "Usage: sudo $0 [--pre|--stable] [--tag vX.Y.Z] [--repo owner/repo]"
-      exit 0
-      ;;
-    *)
-      echo "Unknown arg: $1" >&2
-      exit 1
-      ;;
-  esac
-done
-
-# ---------- Helpers ----------
+# ---------- Helpers: Logging ----------
 info(){ printf '\033[1;34m[i]\033[0m %s\n' "$*"; }
 ok(){   printf '\033[1;32m[✓]\033[0m %s\n' "$*"; }
 warn(){ printf '\033[1;33m[!]\033[0m %s\n' "$*"; }
 err(){  printf '\033[1;31m[✗]\033[0m %s\n' "$*" >&2; }
 
+# ---------- Helpers: Basic requirements ----------
 need_root(){
   if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
     err "Bitte als root ausführen (sudo)."
     exit 1
   fi
 }
+
 need_tools(){
   command -v curl >/dev/null || { apt-get update -y; apt-get install -y curl; }
   command -v jq   >/dev/null || { apt-get update -y; apt-get install -y jq; }
@@ -67,11 +51,12 @@ need_tools(){
   command -v systemctl >/dev/null || { err "systemd/systemctl erforderlich."; exit 1; }
 }
 
+# ---------- GitHub API ----------
 api(){
   local url="$1"
+  # absichtlich ohne GITHUB_TOKEN, um 401-Probleme bei kaputten Tokens zu vermeiden
   curl -fsSL -H "Accept: application/vnd.github+json" "$url"
 }
-
 
 trim_one_line(){
   tr -d '\r' | tr -d '\n' | sed 's/[[:space:]]\+$//'
@@ -154,6 +139,49 @@ detect_exec(){
   fi
 }
 
+# ---------- Robuster Download ----------
+download_deb(){
+  local url="$1"
+  local dest="$2"
+  local attempt=1
+  local max=5
+
+  while (( attempt <= max )); do
+    info "Lade (Versuch ${attempt}/${max}): ${url}"
+
+    # --retry-all-errors: wiederholt auch bei Netzfehlern wie exit 56
+    if curl -fL --retry 3 --retry-delay 1 --retry-all-errors -o "$dest" "$url"; then
+      return 0
+    fi
+
+    local rc=$?
+    warn "Download fehlgeschlagen (curl exit ${rc})."
+    sleep $((attempt * 2))
+    attempt=$((attempt+1))
+  done
+
+  err "Download endgültig fehlgeschlagen nach ${max} Versuchen."
+  exit 1
+}
+
+# ---------- CLI-Args ----------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --pre) CHANNEL="pre"; shift ;;
+    --stable) CHANNEL="stable"; shift ;;
+    --tag) TAG="${2:-}"; shift 2 ;;
+    --repo) REPO="${2:-}"; shift 2 ;;
+    -h|--help)
+      echo "Usage: sudo $0 [--pre|--stable] [--tag vX.Y.Z] [--repo owner/repo]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown arg: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
 # ---------- Start ----------
 need_root
 need_tools
@@ -164,7 +192,7 @@ if [[ "$ARCH_SYS" != "$ARCH_REQ" ]]; then
   exit 1
 fi
 
-OLD_VER="$(installed_version || true)"
+OLD_VER=$(installed_version || true)
 if [[ -n "$OLD_VER" ]]; then
   info "Installiert: ${DPKG_PKG} ${OLD_VER}"
 else
@@ -194,7 +222,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 DEB_FILE="${TMPDIR}/${APP_NAME}_${VER_CLEAN}_${ARCH_REQ}.deb"
 
 info "Lade: ${DEB_URL}"
-curl -fL --retry 3 --retry-delay 1 -o "$DEB_FILE" "$DEB_URL"
+download_deb "$DEB_URL" "$DEB_FILE"
 dpkg-deb --info "$DEB_FILE" >/dev/null 2>&1 || { err "Ungültiges .deb"; exit 1; }
 
 # Service anhalten, egal ob aktiv
@@ -285,5 +313,5 @@ if ! wait_health "$URL"; then
   exit 1
 fi
 
-NEW_VER="$(installed_version || echo "$VER_CLEAN")"
+NEW_VER=$(installed_version || echo "$VER_CLEAN")
 ok "Fertig: ${APP_NAME} ${OLD_VER:+${OLD_VER} → }${NEW_VER} (healthy @ ${URL})"
