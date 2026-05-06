@@ -202,21 +202,42 @@ else
   info "Keine bestehende ${DPKG_PKG}-Installation gefunden."
 fi
 
+direct_deb_url_for_tag(){
+  [[ -n "${TAG:-}" ]] || return 1
+  [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+)*$ ]] || return 1
+  local ver="${TAG#v}"
+  printf 'https://github.com/%s/releases/download/%s/%s_%s_%s.deb\n' "$REPO" "$TAG" "$APP_NAME" "$ver" "$ARCH_REQ"
+}
+
+
 info "Ermittle Release aus ${REPO} (${CHANNEL}${TAG:+, tag=$TAG}) ..."
-RELEASE_JSON="$(get_release_json)"
-if [[ -z "$RELEASE_JSON" || "$RELEASE_JSON" == "null" ]]; then
-  err "Keine passende Release gefunden."
-  exit 1
+
+DEB_URL=""
+if [[ -n "$TAG" ]]; then
+  DIRECT_URL="$(direct_deb_url_for_tag || true)"
+  if [[ -n "$DIRECT_URL" ]]; then
+    DEB_URL="$DIRECT_URL"
+    info "Nutze direkte Release-URL fuer Tag ${TAG}."
+  fi
 fi
 
-TAG_NAME="$(printf '%s' "$RELEASE_JSON" | jq -r '.tag_name')"
-[[ -z "$TAG" ]] && TAG="$TAG_NAME"
+if [[ -z "$DEB_URL" ]]; then
+  RELEASE_JSON="$(get_release_json)"
+  if [[ -z "$RELEASE_JSON" || "$RELEASE_JSON" == "null" ]]; then
+    err "Keine passende Release gefunden."
+    exit 1
+  fi
+
+  TAG_NAME="$(printf '%s' "$RELEASE_JSON" | jq -r '.tag_name')"
+  [[ -z "$TAG" ]] && TAG="$TAG_NAME"
+  DEB_URL_RAW="$(printf '%s' "$RELEASE_JSON" | pick_deb_from_release || true)"
+  DEB_URL="$(printf '%s' "$DEB_URL_RAW" | trim_one_line)"
+fi
+
 VER_CLEAN="${TAG#v}"
 
-DEB_URL_RAW="$(printf '%s' "$RELEASE_JSON" | pick_deb_from_release || true)"
-DEB_URL="$(printf '%s' "$DEB_URL_RAW" | trim_one_line)"
 if [[ -z "$DEB_URL" ]]; then
-  err "Kein .deb Asset (${ARCH_REQ}) in Release ${TAG} gefunden."
+  err "Kein .deb Asset (arm64) in Release ${TAG} gefunden."
   exit 1
 fi
 
