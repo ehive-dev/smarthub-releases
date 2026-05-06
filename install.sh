@@ -54,7 +54,10 @@ need_tools(){
 # ---------- GitHub API ----------
 api(){
   local url="$1"
-  # absichtlich ohne GITHUB_TOKEN, um 401-Probleme bei kaputten Tokens zu vermeiden
+  if command -v gh >/dev/null 2>&1 && gh auth status -h github.com >/dev/null 2>&1; then
+    gh api "${url#https://api.github.com/}"
+    return
+  fi
   curl -fsSL -H "Accept: application/vnd.github+json" "$url"
 }
 
