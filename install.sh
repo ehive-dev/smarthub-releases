@@ -17,6 +17,7 @@ umask 022
 APP_NAME="smarthub"
 UNIT="${APP_NAME}.service"
 UNIT_BASE="${APP_NAME}"
+UPDATER_UNIT="${UPDATER_UNIT:-smarthub-updater.service}"
 
 # Optional:
 #   REPO=ehive-dev/smarthub-releases
@@ -50,6 +51,73 @@ need_tools(){
   command -v ss   >/dev/null 2>&1 || true
   command -v systemctl >/dev/null || { err "systemd/systemctl erforderlich."; exit 1; }
 }
+
+unit_exists(){
+  systemctl list-unit-files "$1" >/dev/null 2>&1 || systemctl status "$1" >/dev/null 2>&1
+}
+
+cleanup_stale_helpers(){
+  # Alte SmartHub-Versionen konnten Paket-/Statusabfragen als Kindprozesse
+  # liegen lassen. Vor einem Update muessen die weg, sonst bleiben alte
+  # Systeme trotz Paketinstallation haengen.
+  pkill -TERM -f "apt-cache policy" 2>/dev/null || true
+  pkill -TERM -x "dpkg-query" 2>/dev/null || true
+  pkill -TERM -f "dpkg-query --search" 2>/dev/null || true
+  pkill -TERM -f "dpkg -S " 2>/dev/null || true
+  sleep 0.5
+  pkill -KILL -f "apt-cache policy" 2>/dev/null || true
+  pkill -KILL -x "dpkg-query" 2>/dev/null || true
+  pkill -KILL -f "dpkg-query --search" 2>/dev/null || true
+  pkill -KILL -f "dpkg -S " 2>/dev/null || true
+}
+
+install_recovery_dropins(){
+  install -d -m 755 "/etc/systemd/system/${UNIT}.d"
+  cat >"/etc/systemd/system/${UNIT}.d/20-smarthub-recovery.conf" <<UNITRECOVERY
+[Service]
+KillMode=control-group
+TimeoutStopSec=8s
+StateDirectory=${UNIT_BASE}
+LogsDirectory=${UNIT_BASE}
+UNITRECOVERY
+
+  install -d -m 755 "/etc/systemd/system/${UPDATER_UNIT}.d"
+  cat >"/etc/systemd/system/${UPDATER_UNIT}.d/20-smarthub-rescue-listen.conf" <<UPDRECOVERY
+[Service]
+Environment=SMU_HOST=0.0.0.0
+KillMode=control-group
+TimeoutStopSec=8s
+UPDRECOVERY
+}
+
+restart_rescue_services(){
+  systemctl daemon-reload || true
+  systemctl reset-failed "$UNIT" 2>/dev/null || true
+  systemctl restart "$UNIT" 2>/dev/null || true
+
+  if unit_exists "$UPDATER_UNIT"; then
+    systemctl reset-failed "$UPDATER_UNIT" 2>/dev/null || true
+    systemctl restart "$UPDATER_UNIT" 2>/dev/null || true
+  fi
+  if unit_exists caddy.service; then
+    systemctl reset-failed caddy.service 2>/dev/null || true
+    systemctl restart caddy.service 2>/dev/null || true
+  fi
+}
+
+SERVICE_STOPPED_FOR_UPDATE=0
+finish(){
+  local rc=$?
+  rm -rf "${TMPDIR:-}" 2>/dev/null || true
+  if [[ $rc -ne 0 && "${SERVICE_STOPPED_FOR_UPDATE}" == "1" ]]; then
+    warn "Installer fehlgeschlagen nach Service-Stopp; starte SmartHub/Updater/Caddy wieder."
+    cleanup_stale_helpers
+    install_recovery_dropins
+    restart_rescue_services
+  fi
+  exit "$rc"
+}
+trap finish EXIT
 
 # ---------- GitHub API ----------
 api(){
@@ -153,7 +221,7 @@ download_deb(){
     info "Lade (Versuch ${attempt}/${max}): ${url}"
 
     # --retry-all-errors: wiederholt auch bei Netzfehlern wie exit 56
-    if curl -fL --retry 3 --retry-delay 1 --retry-all-errors -o "$dest" "$url"; then
+    if curl -fL --connect-timeout 10 --max-time 600 --retry 3 --retry-delay 1 --retry-all-errors -o "$dest" "$url"; then
       return 0
     fi
 
@@ -242,15 +310,26 @@ if [[ -z "$DEB_URL" ]]; then
 fi
 
 TMPDIR="$(mktemp -d -t smarthub-install.XXXXX)"
-trap 'rm -rf "$TMPDIR"' EXIT
 DEB_FILE="${TMPDIR}/${APP_NAME}_${VER_CLEAN}_${ARCH_REQ}.deb"
 
 info "Lade: ${DEB_URL}"
 download_deb "$DEB_URL" "$DEB_FILE"
 dpkg-deb --info "$DEB_FILE" >/dev/null 2>&1 || { err "Ungültiges .deb"; exit 1; }
 
-# Service anhalten, egal ob aktiv
-systemctl stop "$UNIT" || true
+# Alte Installationen vor dem Paketwechsel reparieren und wirklich stoppen.
+install_recovery_dropins
+systemctl daemon-reload || true
+cleanup_stale_helpers
+if unit_exists "$UNIT"; then
+  systemctl kill --kill-who=all "$UNIT" 2>/dev/null || true
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 25s systemctl stop "$UNIT" 2>/dev/null || true
+  else
+    systemctl stop "$UNIT" 2>/dev/null || true
+  fi
+fi
+SERVICE_STOPPED_FOR_UPDATE=1
+cleanup_stale_helpers
 
 info "Installiere Paket ..."
 set +e
@@ -295,11 +374,11 @@ Group=root
 EnvironmentFile=-/etc/default/${APP_NAME}
 ExecStart=${EXEC_BIN}
 Restart=always
-RestartSec=3s
+RestartSec=5s
 StateDirectory=${UNIT_BASE}
 LogsDirectory=${UNIT_BASE}
-KillMode=process
-TimeoutStopSec=15s
+KillMode=control-group
+TimeoutStopSec=8s
 
 [Install]
 WantedBy=multi-user.target
@@ -314,10 +393,19 @@ StateDirectory=${UNIT_BASE}
 LogsDirectory=${UNIT_BASE}
 UNITDROP
 
+install_recovery_dropins
+
 # Aktivieren/Starten
 systemctl daemon-reload
 systemctl enable --now "${UNIT}" || true
 systemctl restart "${UNIT}" || true
+if unit_exists "$UPDATER_UNIT"; then
+  systemctl enable --now "$UPDATER_UNIT" || true
+  systemctl restart "$UPDATER_UNIT" || true
+fi
+if unit_exists caddy.service; then
+  systemctl restart caddy.service || true
+fi
 
 PORT="$(get_port)"
 H_PATH="$(get_health_path)"
