@@ -58,8 +58,8 @@ unit_exists(){
 
 cleanup_stale_helpers(){
   # Alte SmartHub-Versionen konnten Paket-/Statusabfragen als Kindprozesse
-  # liegen lassen. Vor einem Update muessen die weg, sonst bleiben alte
-  # Systeme trotz Paketinstallation haengen.
+  # liegen lassen. Vor einem Update müssen die weg, sonst bleiben alte
+  # Systeme trotz Paketinstallation hängen.
   pkill -TERM -f "apt-cache policy" 2>/dev/null || true
   pkill -TERM -x "dpkg-query" 2>/dev/null || true
   pkill -TERM -f "dpkg-query --search" 2>/dev/null || true
