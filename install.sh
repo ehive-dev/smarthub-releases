@@ -285,7 +285,7 @@ if [[ -n "$TAG" ]]; then
   DIRECT_URL="$(direct_deb_url_for_tag || true)"
   if [[ -n "$DIRECT_URL" ]]; then
     DEB_URL="$DIRECT_URL"
-    info "Nutze direkte Release-URL fuer Tag ${TAG}."
+    info "Nutze direkte Release-URL für Tag ${TAG}."
   fi
 fi
 
