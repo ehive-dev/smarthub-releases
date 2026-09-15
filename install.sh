@@ -56,21 +56,6 @@ unit_exists(){
   systemctl list-unit-files "$1" >/dev/null 2>&1 || systemctl status "$1" >/dev/null 2>&1
 }
 
-cleanup_stale_helpers(){
-  # Alte SmartHub-Versionen konnten Paket-/Statusabfragen als Kindprozesse
-  # liegen lassen. Vor einem Update müssen die weg, sonst bleiben alte
-  # Systeme trotz Paketinstallation hängen.
-  pkill -TERM -f "apt-cache policy" 2>/dev/null || true
-  pkill -TERM -x "dpkg-query" 2>/dev/null || true
-  pkill -TERM -f "dpkg-query --search" 2>/dev/null || true
-  pkill -TERM -f "dpkg -S " 2>/dev/null || true
-  sleep 0.5
-  pkill -KILL -f "apt-cache policy" 2>/dev/null || true
-  pkill -KILL -x "dpkg-query" 2>/dev/null || true
-  pkill -KILL -f "dpkg-query --search" 2>/dev/null || true
-  pkill -KILL -f "dpkg -S " 2>/dev/null || true
-}
-
 install_recovery_dropins(){
   install -d -m 755 "/etc/systemd/system/${UNIT}.d"
   cat >"/etc/systemd/system/${UNIT}.d/20-smarthub-recovery.conf" <<UNITRECOVERY
@@ -106,12 +91,14 @@ restart_rescue_services(){
 }
 
 SERVICE_STOPPED_FOR_UPDATE=0
+INSTALL_WORK_DIR=""
 finish(){
   local rc=$?
-  rm -rf "${TMPDIR:-}" 2>/dev/null || true
+  if [[ -n "$INSTALL_WORK_DIR" && -d "$INSTALL_WORK_DIR" && "$INSTALL_WORK_DIR" == */smarthub-install.* ]]; then
+    rm -rf -- "$INSTALL_WORK_DIR" 2>/dev/null || true
+  fi
   if [[ $rc -ne 0 && "${SERVICE_STOPPED_FOR_UPDATE}" == "1" ]]; then
     warn "Installer fehlgeschlagen nach Service-Stopp; starte SmartHub/Updater/Caddy wieder."
-    cleanup_stale_helpers
     install_recovery_dropins
     restart_rescue_services
   fi
@@ -309,17 +296,23 @@ if [[ -z "$DEB_URL" ]]; then
   exit 1
 fi
 
-TMPDIR="$(mktemp -d -t smarthub-install.XXXXX)"
-DEB_FILE="${TMPDIR}/${APP_NAME}_${VER_CLEAN}_${ARCH_REQ}.deb"
+INSTALL_WORK_DIR="$(mktemp -d -t smarthub-install.XXXXX)"
+DEB_FILE="${INSTALL_WORK_DIR}/${APP_NAME}_${VER_CLEAN}_${ARCH_REQ}.deb"
 
 info "Lade: ${DEB_URL}"
 download_deb "$DEB_URL" "$DEB_FILE"
 dpkg-deb --info "$DEB_FILE" >/dev/null 2>&1 || { err "Ungültiges .deb"; exit 1; }
+PKG_NAME="$(dpkg-deb -f "$DEB_FILE" Package)"
+PKG_VERSION="$(dpkg-deb -f "$DEB_FILE" Version)"
+PKG_ARCH="$(dpkg-deb -f "$DEB_FILE" Architecture)"
+if [[ "$PKG_NAME" != "$DPKG_PKG" || "$PKG_VERSION" != "$VER_CLEAN" || "$PKG_ARCH" != "$ARCH_REQ" ]]; then
+  err "Release-Paket passt nicht zum erwarteten Namen, Tag oder zur Architektur."
+  exit 1
+fi
 
 # Alte Installationen vor dem Paketwechsel reparieren und wirklich stoppen.
 install_recovery_dropins
 systemctl daemon-reload || true
-cleanup_stale_helpers
 if unit_exists "$UNIT"; then
   systemctl kill --kill-who=all "$UNIT" 2>/dev/null || true
   if command -v timeout >/dev/null 2>&1; then
@@ -329,7 +322,6 @@ if unit_exists "$UNIT"; then
   fi
 fi
 SERVICE_STOPPED_FOR_UPDATE=1
-cleanup_stale_helpers
 
 info "Installiere Paket ..."
 set +e
