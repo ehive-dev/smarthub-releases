@@ -19,10 +19,8 @@ curl -fsSL https://raw.githubusercontent.com/ehive-dev/smarthub-releases/main/in
 Bestimmte Version installieren:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ehive-dev/smarthub-releases/main/install.sh | sudo bash -s -- --tag v1.1.53
+curl -fsSL https://raw.githubusercontent.com/ehive-dev/smarthub-releases/main/install.sh | sudo bash -s -- --tag v1.1.51
 ```
-
-Version 1.1.53 integriert USB-WLAN direkt in SmartHub und ordnet KNX Bridge, HiveScope und HiveBus im Dashboard sowie AppStore unter „Tools“ ein. Bestehende App-Einstellungen werden beim Update nicht ersetzt.
 
 ## Service
 
