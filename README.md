@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/ehive-dev/smarthub-releases/main/in
 Bestimmte Version installieren:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ehive-dev/smarthub-releases/main/install.sh | sudo bash -s -- --tag v1.1.54
+curl -fsSL https://raw.githubusercontent.com/ehive-dev/smarthub-releases/main/install.sh | sudo bash -s -- --tag v1.1.55
 ```
 
 ## Service
