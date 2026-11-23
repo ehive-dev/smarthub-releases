@@ -58,21 +58,25 @@ unit_exists(){
 
 install_recovery_dropins(){
   install -d -m 755 "/etc/systemd/system/${UNIT}.d"
-  cat >"/etc/systemd/system/${UNIT}.d/20-smarthub-recovery.conf" <<UNITRECOVERY
-[Service]
-KillMode=control-group
-TimeoutStopSec=8s
-StateDirectory=${UNIT_BASE}
-LogsDirectory=${UNIT_BASE}
-UNITRECOVERY
+  {
+    printf '%s\n' '[Service]'
+    if [[ -x /usr/lib/ehive/node24/bin/node && -f /opt/smarthub/bin/smarthub.bundle.js ]]; then
+      printf '%s\n' 'EnvironmentFile=-/etc/default/smarthub' 'WorkingDirectory=/opt/smarthub' \
+        'ExecStart=' 'ExecStart=/usr/lib/ehive/node24/bin/node /opt/smarthub/bin/smarthub.bundle.js'
+    fi
+    printf '%s\n' 'KillMode=control-group' 'TimeoutStopSec=8s' "StateDirectory=${UNIT_BASE}" "LogsDirectory=${UNIT_BASE}"
+  } > "/etc/systemd/system/${UNIT}.d/20-smarthub-recovery.conf"
 
   install -d -m 755 "/etc/systemd/system/${UPDATER_UNIT}.d"
-  cat >"/etc/systemd/system/${UPDATER_UNIT}.d/20-smarthub-rescue-listen.conf" <<UPDRECOVERY
-[Service]
-Environment=SMU_HOST=0.0.0.0
-KillMode=control-group
-TimeoutStopSec=8s
-UPDRECOVERY
+  {
+    printf '%s\n' '[Service]' 'Environment=SMU_HOST=127.0.0.1' \
+      'Environment=SMU_AUTH_TOKEN_FILE=/var/lib/smarthub/updater-api-token'
+    if [[ -x /usr/lib/ehive/node24/bin/node && -f /opt/smarthub/updater-app/app.bundle.js ]]; then
+      printf '%s\n' 'WorkingDirectory=/opt/smarthub/updater-app' \
+        'ExecStart=' 'ExecStart=/usr/lib/ehive/node24/bin/node /opt/smarthub/updater-app/app.bundle.js'
+    fi
+    printf '%s\n' 'KillMode=control-group' 'TimeoutStopSec=8s'
+  } > "/etc/systemd/system/${UPDATER_UNIT}.d/20-smarthub-rescue-listen.conf"
 }
 
 restart_rescue_services(){
