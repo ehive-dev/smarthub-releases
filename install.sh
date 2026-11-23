@@ -57,6 +57,10 @@ unit_exists(){
 }
 
 install_recovery_dropins(){
+  # Update archives contain administrator settings and root-only API tokens.
+  local backup_dir="/var/lib/smarthub/self-backups/smarthub"
+  install -d -m 700 "$backup_dir" /var/lib/smarthub/system-backups
+  find "$backup_dir" -maxdepth 1 -type f -name 'smarthub-backup-*.tar.gz' -exec chmod 600 {} +
   install -d -m 755 "/etc/systemd/system/${UNIT}.d"
   {
     printf '%s\n' '[Service]'

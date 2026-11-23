@@ -25,11 +25,18 @@ class Recovery(unittest.TestCase):
         directory.mkdir(parents=True)
         legacy = directory / 'smarthub.service'
         legacy.write_text('[Service]\nExecStart=/usr/bin/smarthub\n')
+        archive = root / 'var/lib/smarthub/self-backups/smarthub/smarthub-backup-fixture.tar.gz'
+        archive.parent.mkdir(parents=True)
+        archive.write_text('private fixture settings')
+        archive.chmod(0o644)
         function = re.sub(r'/(?:etc|usr|opt|var)/', lambda m: str(root) + m.group(0), FUNCTION)
         script = 'set -euo pipefail\nUNIT=smarthub.service\nUNIT_BASE=smarthub\nUPDATER_UNIT=smarthub-updater.service\n' + function + '\ninstall_recovery_dropins\ninstall_recovery_dropins\n'
         result = subprocess.run(['bash', '-c', script], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(legacy.read_text(), '[Service]\nExecStart=/usr/bin/smarthub\n')
+        self.assertEqual(archive.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((root / 'var/lib/smarthub/system-backups').stat().st_mode & 0o777, 0o700)
         return root, (directory / 'smarthub.service.d/20-smarthub-recovery.conf').read_text(), (directory / 'smarthub-updater.service.d/20-smarthub-rescue-listen.conf').read_text()
 
     def test_node24_upgrade_preserves_effective_package_entrypoints(self):
