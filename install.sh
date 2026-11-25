@@ -333,14 +333,14 @@ SERVICE_STOPPED_FOR_UPDATE=1
 
 info "Installiere Paket ..."
 set +e
-dpkg -i "$DEB_FILE"
+dpkg --force-confold -i "$DEB_FILE"
 RC=$?
 set -e
 if [[ $RC -ne 0 ]]; then
   warn "dpkg -i scheiterte — versuche apt --fix-broken"
   apt-get update -y
-  apt-get -f install -y
-  dpkg -i "$DEB_FILE"
+  apt-get --no-remove -f install -y
+  dpkg --force-confold -i "$DEB_FILE"
 fi
 ok "Installiert: ${DPKG_PKG} ${VER_CLEAN}"
 
@@ -358,7 +358,7 @@ fi
 
 # Unit-Datei bereitstellen, falls nicht vorhanden
 UNIT_PATH="/etc/systemd/system/${UNIT}"
-if ! systemctl list-unit-files | awk '{print $1}' | grep -qx "${UNIT}"; then
+if [[ ! -e "$UNIT_PATH" && ! -L "$UNIT_PATH" && ! -f "/lib/systemd/system/$UNIT" && ! -f "/usr/lib/systemd/system/$UNIT" ]]; then
   EXEC_BIN="$(detect_exec)"
   install -D -m 644 /dev/null "$UNIT_PATH"
   cat >"$UNIT_PATH" <<UNITFILE
